@@ -25,7 +25,7 @@ services:
       # /opt/keycloak-certs/tls.crt on the host is mapped to /etc/x509/https/tls.crt in the container (read-only)
       - /opt/keycloak-certs/tls.crt:/etc/x509/https/tls.crt:ro
       - /opt/keycloak-certs/tls.key:/etc/x509/https/tls.key:ro
-      - ./providers/dasniko.keycloak-2fa-sms-authenticator.jar:/opt/keycloak/providers/dasniko.keycloak-2fa-sms-authenticator.jar
+      - ./providers/thakacreations.keycloak-2fa-sms-authenticator.jar:/opt/keycloak/providers/thakacreations.keycloak-2fa-sms-authenticator.jar
       - keycloak_data:/opt/keycloak/data
     command:
       - start

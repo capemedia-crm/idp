@@ -6,6 +6,7 @@ services:
     container_name: identity-server
     restart: unless-stopped
     environment:
+      KC_FEATURES: scripts
       KC_DB: ${KC_DB}
       KC_DB_URL: jdbc:postgresql://${KC_DB_HOST}:${KC_DB_PORT}/${KC_DB_NAME}
       KC_DB_USERNAME: ${KC_DB_USERNAME}

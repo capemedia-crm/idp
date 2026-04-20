@@ -1,0 +1,149 @@
+name: Release Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [ dev, prod ]
+      branch:
+        description: Branch to deploy
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  SERVICE_NAME: digi-identity
+  ECR_REPO_NAME: cape-digi-digi-identity
+  AWS_REGION: us-east-1
+  K8S_NAMESPACE: cape-digi
+  TF_BACKEND_BUCKET: cape-digi-tf-state
+  TF_BACKEND_LOCK_TABLE: cape-digi-tf-locks
+  TF_STATE_KEY_PREFIX: digi-identity
+  KUBECONFIG: /home/runner/.kube/config
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      # -------------------------
+      # Checkout
+      # -------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      # -------------------------
+      # Setup tools
+      # -------------------------
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.11.4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+
+      # -------------------------
+      # AWS Auth (OIDC)
+      # -------------------------
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # -------------------------
+      # Login to ECR
+      # -------------------------
+      - name: Login to ECR
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin \
+              "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+      # -------------------------
+      # Build & Push Image
+      # -------------------------
+      - name: Build and push image
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${GITHUB_SHA}"
+          docker build -t "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
+
+      # -------------------------
+      # Configure kubeconfig
+      # -------------------------
+      - name: Update kubeconfig
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$KUBECONFIG")"
+
+          aws eks update-kubeconfig \
+            --name "${{ vars.EKS_CLUSTER_NAME }}" \
+            --region "$AWS_REGION"
+
+          echo "Current context:"
+          kubectl config current-context
+
+          echo "Cluster connectivity test:"
+          kubectl get ns
+
+      # -------------------------
+      # Optional Terraform outputs (debug only)
+      # -------------------------
+      - name: Inspect Terraform outputs
+        working-directory: infrastructure/terraform
+        run: |
+          set -euo pipefail
+          terraform init \
+            -backend-config="bucket=$TF_BACKEND_BUCKET" \
+            -backend-config="key=$TF_STATE_KEY_PREFIX/${{ inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=$AWS_REGION" \
+            -backend-config="dynamodb_table=$TF_BACKEND_LOCK_TABLE" \
+            -backend-config="encrypt=true"
+          terraform output -json || true
+
+      # -------------------------
+      # Helm Deploy
+      # -------------------------
+      - name: Deploy with Helm
+        working-directory: infrastructure
+        env:
+          IMAGE_URI: ${{ env.IMAGE_URI }}
+          IRSA_ROLE_ARN: ${{ secrets.IRSA_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+
+          helm upgrade --install "$SERVICE_NAME" k8s/helm \
+            -f "k8s/helm/values.${{ inputs.environment }}.yaml" \
+            --namespace "$K8S_NAMESPACE" \
+            --create-namespace \
+            --set image="$IMAGE_URI" \
+            --set serviceAccount.roleArn="$IRSA_ROLE_ARN"
+
+      # -------------------------
+      # Post-deploy verification
+      # -------------------------
+      - name: Verify deployment
+        run: |
+          set -euo pipefail
+          kubectl -n "$K8S_NAMESPACE" get deploy,po,svc

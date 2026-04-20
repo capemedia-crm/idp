@@ -1,0 +1,103 @@
+name: Terraform Force Unlock
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [ dev, prod ]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  TF_BACKEND_BUCKET: cape-digi-tf-state
+  TF_BACKEND_LOCK_TABLE: cape-digi-tf-locks
+  TF_STATE_KEY_PREFIX: digi-identity
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    concurrency:
+      group: terraform-digi-identity-${{ inputs.environment }}
+      cancel-in-progress: false
+
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Generate tfvars in CI
+        run: |
+          cat > env.auto.tfvars.json <<EOF
+          {
+            "aws_region": "${{ env.AWS_REGION }}",
+            "environment": "${{ inputs.environment }}",
+            "oidc_provider_arn": "${{ vars.OIDC_PROVIDER_ARN }}",
+            "oidc_provider_url": "${{ vars.OIDC_PROVIDER_URL }}"
+          }
+          EOF
+
+      - name: Terraform Init
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ env.TF_BACKEND_BUCKET }}" \
+            -backend-config="key=${{ env.TF_STATE_KEY_PREFIX }}/${{ inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}" \
+            -backend-config="dynamodb_table=${{ env.TF_BACKEND_LOCK_TABLE }}" \
+            -backend-config="encrypt=true"
+
+      - name: Terraform Plan (capture output)
+        id: tf_plan
+        shell: bash
+        run: |
+          set +e
+          terraform plan -out=tfplan 2>&1 | tee terraform-plan.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=${EXIT_CODE}" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Extract lock ID
+        id: lock
+        if: ${{ steps.tf_plan.outputs.exit_code != '0' }}
+        shell: bash
+        run: |
+          LOCK_ID="$(awk '
+            /Lock Info:/ { in_lock=1; next }
+            in_lock && $1 == "ID:" { print $2; exit }
+          ' terraform-plan.log)"
+
+          if [ -z "$LOCK_ID" ]; then
+            LOCK_ID="$(grep -Eo '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' terraform-plan.log | head -n1 || true)"
+          fi
+
+          echo "lock_id=$LOCK_ID" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$LOCK_ID" ]; then
+            echo "Found Terraform lock ID: $LOCK_ID"
+          else
+            echo "No Terraform lock ID found."
+          fi
+
+      - name: Force unlock
+        if: ${{ steps.tf_plan.outputs.exit_code != '0' && steps.lock.outputs.lock_id !=
+          '' }}
+        run: terraform force-unlock -force "${{ steps.lock.outputs.lock_id }}"

@@ -1,0 +1,91 @@
+name: Terraform Plan
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [ dev, prod ]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  PYTHON_VERSION: 3.12.8
+  POETRY_VERSION: 2.1.1
+  SERVICE_NAME: digi-identity
+  ECR_REPO_NAME: digi-identity
+  AWS_REGION: us-east-1
+  K8S_NAMESPACE: cape-digi
+  TF_BACKEND_BUCKET: cape-digi-tf-state
+  TF_BACKEND_LOCK_TABLE: cape-digi-tf-locks
+  TF_STATE_KEY_PREFIX: digi-identity
+  BUMP_VERSION_SCHEME_KEYWORD: release
+  DEFAULT_BUMP_VERSION_SCHEME: patch
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: terraform-digi-identity-${{ inputs.environment }}
+      cancel-in-progress: false
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        working-directory: infrastructure/terraform
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Generate tfvars in CI
+        run: |
+          cat <<EOF > env.auto.tfvars.json
+          {
+            "aws_region": "${{ env.AWS_REGION }}",
+            "environment": "${{ inputs.environment }}",
+            "oidc_provider_arn": "${{ vars.OIDC_PROVIDER_ARN }}",
+            "oidc_provider_url": "${{ vars.OIDC_PROVIDER_URL }}"
+          }
+          EOF
+
+      - name: Terraform Init
+        run: |
+          terraform init             -backend-config="bucket=${{ env.TF_BACKEND_BUCKET }}"             -backend-config="key=${{ env.TF_STATE_KEY_PREFIX }}/${{ inputs.environment }}/terraform.tfstate"             -backend-config="region=${{ env.AWS_REGION }}"             -backend-config="dynamodb_table=${{ env.TF_BACKEND_LOCK_TABLE }}"             -backend-config="encrypt=true"
+
+      - name: Terraform Plan
+        shell: bash
+        run: |
+          terraform plan \
+            -input=false \
+            -lock-timeout=30s \
+            -out=tfplan \
+            -no-color
+
+      - name: Render human-readable plan
+        run: terraform show -no-color tfplan > terraform-plan.txt
+
+      - name: Upload plan artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ inputs.environment }}
+          path: |
+            infrastructure/terraform/tfplan
+            infrastructure/terraform/terraform-plan.txt
+
+      - name: Add plan to summary
+        run: |
+          echo '## Terraform Plan' >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat terraform-plan.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

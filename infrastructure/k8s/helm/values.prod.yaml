@@ -1,0 +1,18 @@
+name: digi-identity
+image: 565393046261.dkr.ecr.us-east-1.amazonaws.com/cape-digi-digi-identity:latest
+replicas: 2
+
+awsRegion: us-east-1
+ssmPrefix: /digi-identity/prod
+
+serviceAccount:
+  name: digi-identity
+  roleArn: "arn:aws:iam::565393046261:role/digi-identity-irsa-role"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

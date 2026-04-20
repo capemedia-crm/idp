@@ -1,0 +1,14 @@
+# Documentation only. Real values are generated in CI.
+
+aws_region        = "us-east-1"
+environment       = "prod"
+oidc_provider_arn = "arn:aws:iam::123456789012:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/XXXXXXXXXXXX"
+oidc_provider_url = "https://oidc.eks.us-east-1.amazonaws.com/id/XXXXXXXXXXXX"
+
+ssm_parameters = {
+  APP_NAME            = "service1"
+  ENV                 = "PROD"
+  DEBUG               = "False"
+  BILLING_SERVICE_URL = "http://billing.prod.svc.cluster.local:8080"
+  BILLING_API_KEY     = "replace-me"
+}

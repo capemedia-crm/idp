@@ -19,7 +19,6 @@ permissions:
 
 env:
   SERVICE_NAME: digi-identity
-  ECR_REPO_NAME: cape-digi-digi-identity
   AWS_REGION: us-east-1
   K8S_NAMESPACE: cape-digi
   TF_BACKEND_BUCKET: cape-digi-tf-state
@@ -27,23 +26,20 @@ env:
   TF_STATE_KEY_PREFIX: digi-identity
   KUBECONFIG: /home/runner/.kube/config
 
+  APP_ECR_REPO_NAME: cape-digi-digi-identity
+  SSM_LOADER_ECR_REPO_NAME: cape-digi-ssm-loader
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
 
     steps:
-      # -------------------------
-      # Checkout
-      # -------------------------
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
 
-      # -------------------------
-      # Setup tools
-      # -------------------------
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
         with:
@@ -55,18 +51,12 @@ jobs:
       - name: Setup Helm
         uses: azure/setup-helm@v4
 
-      # -------------------------
-      # AWS Auth (OIDC)
-      # -------------------------
       - name: Configure AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # -------------------------
-      # Login to ECR
-      # -------------------------
       - name: Login to ECR
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
@@ -76,22 +66,36 @@ jobs:
             | docker login --username AWS --password-stdin \
               "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
-      # -------------------------
-      # Build & Push Image
-      # -------------------------
-      - name: Build and push image
+      - name: Build and push Keycloak image
         env:
           AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO_NAME}:${GITHUB_SHA}"
-          docker build -t "$IMAGE_URI" .
-          docker push "$IMAGE_URI"
-          echo "IMAGE_URI=$IMAGE_URI" >> "$GITHUB_ENV"
 
-      # -------------------------
-      # Configure kubeconfig
-      # -------------------------
+          APP_IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_ECR_REPO_NAME}:${GITHUB_SHA}"
+
+          docker build -t "$APP_IMAGE_URI" .
+          docker push "$APP_IMAGE_URI"
+
+          echo "APP_IMAGE_URI=$APP_IMAGE_URI" >> "$GITHUB_ENV"
+          echo "APP_IMAGE_REPOSITORY=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${APP_ECR_REPO_NAME}" >> "$GITHUB_ENV"
+          echo "APP_IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_ENV"
+
+      - name: Build and push SSM loader image
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+
+          SSM_LOADER_IMAGE_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SSM_LOADER_ECR_REPO_NAME}:${GITHUB_SHA}"
+
+          docker build -t "$SSM_LOADER_IMAGE_URI" ./ssm-loader
+          docker push "$SSM_LOADER_IMAGE_URI"
+
+          echo "SSM_LOADER_IMAGE_URI=$SSM_LOADER_IMAGE_URI" >> "$GITHUB_ENV"
+          echo "SSM_LOADER_IMAGE_REPOSITORY=${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${SSM_LOADER_ECR_REPO_NAME}" >> "$GITHUB_ENV"
+          echo "SSM_LOADER_IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_ENV"
+
       - name: Update kubeconfig
         run: |
           set -euo pipefail
@@ -101,15 +105,9 @@ jobs:
             --name "${{ vars.EKS_CLUSTER_NAME }}" \
             --region "$AWS_REGION"
 
-          echo "Current context:"
           kubectl config current-context
-
-          echo "Cluster connectivity test:"
           kubectl get ns
 
-      # -------------------------
-      # Optional Terraform outputs (debug only)
-      # -------------------------
       - name: Inspect Terraform outputs
         working-directory: infrastructure/terraform
         run: |
@@ -122,14 +120,11 @@ jobs:
             -backend-config="encrypt=true"
           terraform output -json || true
 
-      # -------------------------
-      # Helm Deploy
-      # -------------------------
       - name: Deploy with Helm
         working-directory: infrastructure
         env:
-          IMAGE_URI: ${{ env.IMAGE_URI }}
           IRSA_ROLE_ARN: ${{ secrets.IRSA_ROLE_ARN }}
+          ACM_CERT_ARN: ${{ secrets.ACM_CERT_ARN }}
         run: |
           set -euo pipefail
 
@@ -137,13 +132,15 @@ jobs:
             -f "k8s/helm/values.${{ inputs.environment }}.yaml" \
             --namespace "$K8S_NAMESPACE" \
             --create-namespace \
-            --set image="$IMAGE_URI" \
-            --set serviceAccount.roleArn="$IRSA_ROLE_ARN"
+            --set image.repository="$APP_IMAGE_REPOSITORY" \
+            --set image.tag="$APP_IMAGE_TAG" \
+            --set ssmLoaderImage.repository="$SSM_LOADER_IMAGE_REPOSITORY" \
+            --set ssmLoaderImage.tag="$SSM_LOADER_IMAGE_TAG" \
+            --set serviceAccount.roleArn="$IRSA_ROLE_ARN" \
+            --set ingress.certificateArn="$ACM_CERT_ARN"
 
-      # -------------------------
-      # Post-deploy verification
-      # -------------------------
       - name: Verify deployment
         run: |
           set -euo pipefail
-          kubectl -n "$K8S_NAMESPACE" get deploy,po,svc
+          kubectl -n "$K8S_NAMESPACE" get deploy,po,svc,ingress
+          kubectl -n "$K8S_NAMESPACE" rollout status deploy/"$SERVICE_NAME" --timeout=300s

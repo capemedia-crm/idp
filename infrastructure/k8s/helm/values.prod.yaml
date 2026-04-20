@@ -1,18 +1,40 @@
 name: digi-identity
-image: 565393046261.dkr.ecr.us-east-1.amazonaws.com/cape-digi-digi-identity:latest
+
+image:
+  repository: 565393046261.dkr.ecr.us-east-1.amazonaws.com/cape-digi-digi-identity
+  tag: latest
+  pullPolicy: IfNotPresent
+
+ssmLoaderImage:
+  repository: 565393046261.dkr.ecr.us-east-1.amazonaws.com/cape-digi-ssm-loader
+  tag: latest
+  pullPolicy: IfNotPresent
+
 replicas: 2
 
 awsRegion: us-east-1
-ssmPrefix: /digi-identity/prod
+ssmPrefix: /keycloak/prod
 
 serviceAccount:
   name: digi-identity
-  roleArn: "arn:aws:iam::565393046261:role/digi-identity-irsa-role"
+  roleArn: ""
+
+service:
+  port: 80
+  targetPort: 8080
 
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
     cpu: 500m
-    memory: 512Mi
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 5
+  averageCpuUtilization: 70
+
+pdb:
+  minAvailable: 1

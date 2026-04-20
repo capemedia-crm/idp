@@ -15,6 +15,8 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_caller_identity" "current" {}
+
 data "aws_iam_policy_document" "assume" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -44,8 +46,6 @@ resource "aws_iam_role" "this" {
   assume_role_policy = data.aws_iam_policy_document.assume.json
 }
 
-data "aws_caller_identity" "current" {}
-
 data "aws_iam_policy_document" "policy" {
   statement {
     sid = "ReadServiceParameters"
@@ -60,6 +60,22 @@ data "aws_iam_policy_document" "policy" {
       "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.service_name}/${lower(var.environment)}",
       "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${var.service_name}/${lower(var.environment)}/*"
     ]
+  }
+
+  statement {
+    sid = "DecryptSSMParametersViaSSM"
+
+    actions = [
+      "kms:Decrypt"
+    ]
+
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["ssm.${var.aws_region}.amazonaws.com"]
+    }
   }
 }
 

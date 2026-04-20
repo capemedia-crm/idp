@@ -26,22 +26,53 @@ spec:
       automountServiceAccountToken: true
       securityContext:
         runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+
       volumes:
         - name: tmp
           emptyDir: {}
-        - name: gunicorn-home
+        - name: ssm-env
           emptyDir: {}
+
+      initContainers:
+        - name: ssm-loader
+          image: "{{ .Values.ssmLoaderImage.repository }}:{{ .Values.ssmLoaderImage.tag }}"
+          imagePullPolicy: {{ .Values.ssmLoaderImage.pullPolicy }}
+          env:
+            - name: AWS_REGION
+              value: {{ .Values.awsRegion | quote }}
+            - name: AWS_DEFAULT_REGION
+              value: {{ .Values.awsRegion | quote }}
+            - name: SSM_PARAMETER_PREFIX
+              value: {{ .Values.ssmPrefix | quote }}
+            - name: OUTPUT_FILE
+              value: /work/keycloak.env
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: ssm-env
+              mountPath: /work
+
       containers:
         - name: app
-          image: {{ .Values.image | quote }}
-          imagePullPolicy: IfNotPresent
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              . /work/keycloak.env
+              exec /opt/keycloak/bin/kc.sh start
           ports:
-            - containerPort: 8000
+            - containerPort: 8080
+              name: http
           env:
             - name: AWS_REGION
               value: {{ .Values.awsRegion | quote }}
@@ -51,20 +82,35 @@ spec:
               value: "prod"
             - name: SSM_PARAMETER_PREFIX
               value: {{ .Values.ssmPrefix | quote }}
-            - name: TMPDIR
-              value: /tmp
-            - name: HOME
-              value: /home/app
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: gunicorn-home
-              mountPath: /home/app
+            - name: ssm-env
+              mountPath: /work
           securityContext:
-            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 0
+            readOnlyRootFilesystem: false
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+          readinessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /realms/master
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
           resources:
             {{ toYaml .Values.resources | nindent 12 }}
 
@@ -77,8 +123,8 @@ spec:
   selector:
     app: {{ .Values.name }}
   ports:
-    - port: 80
-      targetPort: 8000
+    - port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
       protocol: TCP
       name: http
 
@@ -92,15 +138,15 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: {{ .Values.name }}
-  minReplicas: 2
-  maxReplicas: 5
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
   metrics:
     - type: Resource
       resource:
         name: cpu
         target:
           type: Utilization
-          averageUtilization: 70
+          averageUtilization: {{ .Values.autoscaling.averageCpuUtilization }}
 
 ---
 apiVersion: policy/v1
@@ -108,7 +154,8 @@ kind: PodDisruptionBudget
 metadata:
   name: {{ .Values.name }}
 spec:
-  minAvailable: 1
+  minAvailable: {{ .Values.pdb.minAvailable }}
   selector:
     matchLabels:
       app: {{ .Values.name }}
+

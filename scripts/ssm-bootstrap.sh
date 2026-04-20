@@ -1,34 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -z "${AWS_REGION:-}" ]]; then
-  echo "AWS_REGION is required"
-  exit 1
-fi
+echo "Fetching SSM parameters..."
 
-if [[ -z "${SSM_PARAMETER_PREFIX:-}" ]]; then
-  echo "SSM_PARAMETER_PREFIX is required"
-  exit 1
-fi
+export PYTHONPATH=/opt/python
 
-echo "Loading Keycloak configuration from SSM prefix: ${SSM_PARAMETER_PREFIX}"
+python3 <<EOF
+import os
+import boto3
 
-PARAMS_JSON=$(
-  aws ssm get-parameters-by-path \
-    --region "${AWS_REGION}" \
-    --path "${SSM_PARAMETER_PREFIX}" \
-    --with-decryption \
-    --recursive \
-    --output json
-)
+region = os.environ["AWS_REGION"]
+prefix = os.environ["SSM_PARAMETER_PREFIX"]
 
-echo "${PARAMS_JSON}" | jq -r '
-  .Parameters[]
-  | "\(.Name)=\(.Value)"
-' | while IFS='=' read -r full_name value; do
-    key="${full_name##*/}"
-    export "${key}=${value}"
-    echo "Exported ${key}"
-done
+ssm = boto3.client("ssm", region_name=region)
 
-exec /opt/keycloak/bin/kc.sh start
+params = []
+next_token = None
+
+while True:
+    kwargs = {
+        "Path": prefix,
+        "Recursive": True,
+        "WithDecryption": True,
+    }
+    if next_token:
+        kwargs["NextToken"] = next_token
+
+    resp = ssm.get_parameters_by_path(**kwargs)
+    params.extend(resp["Parameters"])
+
+    next_token = resp.get("NextToken")
+    if not next_token:
+        break
+
+for p in params:
+    key = p["Name"].split("/")[-1]
+    value = p["Value"]
+    os.environ[key] = value
+    print(f"Loaded {key}")
+
+# Exec Keycloak
+os.execv("/opt/keycloak/bin/kc.sh", ["kc.sh", "start"])
+EOF

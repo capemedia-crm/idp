@@ -29,7 +29,7 @@ while True:
 with open(output_file, "w") as f:
     for p in params:
         key = p["Name"].split("/")[-1]
-        value = p["Value"].replace('"', '\\"')
+        value = p["Value"].replace("\\", "\\\\").replace('"', '\\"').replace('$', '\\$').replace('`', '\\`')
         f.write(f'export {key}="{value}"\n')
 
 print(f"Loaded {len(params)} parameters from {prefix} into {output_file}")

@@ -5,7 +5,7 @@ USER root
 RUN microdnf install -y jq awscli && microdnf clean all
 
 COPY providers/thakacreations.keycloak-2fa-sms-authenticator.jar /opt/keycloak/providers/
-COPY docker/ssm-bootstrap.sh /opt/keycloak/bin/ssm-bootstrap.sh
+COPY scripts/ssm-bootstrap.sh /opt/keycloak/bin/ssm-bootstrap.sh
 
 RUN chmod +x /opt/keycloak/bin/ssm-bootstrap.sh \
     && chown -R 1000:0 /opt/keycloak \

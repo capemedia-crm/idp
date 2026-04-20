@@ -137,10 +137,10 @@ jobs:
             --set ssmLoaderImage.repository="$SSM_LOADER_IMAGE_REPOSITORY" \
             --set ssmLoaderImage.tag="$SSM_LOADER_IMAGE_TAG" \
             --set serviceAccount.roleArn="$IRSA_ROLE_ARN" \
-            --set ingress.certificateArn="$ACM_CERT_ARN"
+            # --set ingress.certificateArn="$ACM_CERT_ARN"
 
       - name: Verify deployment
         run: |
           set -euo pipefail
-          kubectl -n "$K8S_NAMESPACE" get deploy,po,svc,ingress
+          kubectl -n "$K8S_NAMESPACE" get deploy,po,svc
           kubectl -n "$K8S_NAMESPACE" rollout status deploy/"$SERVICE_NAME" --timeout=300s

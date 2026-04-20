@@ -13,7 +13,7 @@ ssmLoaderImage:
 replicas: 2
 
 awsRegion: us-east-1
-ssmPrefix: /keycloak/prod
+ssmPrefix: /digi-identity/prod
 
 serviceAccount:
   name: digi-identity

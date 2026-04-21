@@ -34,6 +34,9 @@ spec:
           emptyDir: {}
         - name: ssm-env
           emptyDir: {}
+        - name: keycloak-data
+          emptyDir:
+            sizeLimit: {{ .Values.keycloakData.sizeLimit }}
 
       initContainers:
         - name: ssm-loader
@@ -82,11 +85,15 @@ spec:
               value: "prod"
             - name: SSM_PARAMETER_PREFIX
               value: {{ .Values.ssmPrefix | quote }}
+            - name: JAVA_OPTS_APPEND
+              value: {{ .Values.javaOptsAppend | quote }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
             - name: ssm-env
               mountPath: /work
+            - name: keycloak-data
+              mountPath: /opt/keycloak/data
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

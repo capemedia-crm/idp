@@ -38,3 +38,12 @@ autoscaling:
 
 pdb:
   minAvailable: 1
+
+# JVM tuning — must stay proportional to resources.limits.memory above
+# Xms/Xmx at ~50% of the memory limit leaves headroom for metaspace + native
+javaOptsAppend: "-Xms512m -Xmx1g"
+
+# emptyDir for /opt/keycloak/data — Keycloak is stateless with external Postgres;
+# this directory only holds H2 scratch files and Infinispan cache
+keycloakData:
+  sizeLimit: 500Mi

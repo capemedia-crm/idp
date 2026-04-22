@@ -87,6 +87,14 @@ spec:
               value: {{ .Values.ssmPrefix | quote }}
             - name: JAVA_OPTS_APPEND
               value: {{ .Values.javaOptsAppend | quote }}
+            - name: KC_CACHE_STACK
+              value: kubernetes
+            - name: jgroups.dns.query
+              value: "{{ .Values.name }}-headless.{{ .Release.Namespace }}.svc.cluster.local"
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           volumeMounts:
             - name: tmp
               mountPath: /tmp
@@ -129,6 +137,10 @@ metadata:
 spec:
   selector:
     app: {{ .Values.name }}
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
   ports:
     - port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.targetPort }}
@@ -154,6 +166,46 @@ spec:
         target:
           type: Utilization
           averageUtilization: {{ .Values.autoscaling.averageCpuUtilization }}
+
+---
+# Headless service for Infinispan/JGroups pod-to-pod discovery (KUBE_PING)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.name }}-headless
+spec:
+  selector:
+    app: {{ .Values.name }}
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: 7800
+      name: jgroups
+
+---
+# Allows KUBE_PING to list pods for Infinispan cluster formation
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Values.name }}-kube-ping
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Values.name }}-kube-ping
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .Values.name }}-kube-ping
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.serviceAccount.name }}
+    namespace: {{ .Release.Namespace }}
 
 ---
 apiVersion: policy/v1

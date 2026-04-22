@@ -4,6 +4,6 @@ USER root
 
 COPY providers/thakacreations.keycloak-2fa-sms-authenticator.jar /opt/keycloak/providers/
 
-RUN /opt/keycloak/bin/kc.sh build
+RUN /opt/keycloak/bin/kc.sh build --cache-stack=kubernetes
 
 USER 1000

@@ -89,6 +89,10 @@ spec:
               value: {{ .Values.ssmPrefix | quote }}
             - name: JAVA_OPTS_APPEND
               value: {{ .Values.javaOptsAppend | quote }}
+            - name: KC_HEALTH_ENABLED
+              value: "true"
+            - name: KC_HTTP_MANAGEMENT_PORT
+              value: "9000"
             - name: KC_CACHE_STACK
               value: kubernetes
             - name: jgroups.dns.query

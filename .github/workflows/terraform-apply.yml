@@ -7,7 +7,7 @@ on:
         description: Target environment
         required: true
         type: choice
-        options: [ dev, prod ]
+        options: [dev, prod]
 
 permissions:
   id-token: write
@@ -20,7 +20,7 @@ env:
   ECR_REPO_NAME: digi-identity
   AWS_REGION: us-east-1
   K8S_NAMESPACE: cape-digi
-  TF_BACKEND_BUCKET: cape-digi-tf-state
+  TF_BACKEND_BUCKET: cape-digi-terraform-state
   TF_BACKEND_LOCK_TABLE: cape-digi-tf-locks
   TF_STATE_KEY_PREFIX: digi-identity
   BUMP_VERSION_SCHEME_KEYWORD: release

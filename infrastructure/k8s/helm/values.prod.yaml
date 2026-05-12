@@ -39,11 +39,6 @@ autoscaling:
 pdb:
   minAvailable: 1
 
-ingress:
-  enabled: true
-  host: auth.diginacape.co.ke
-  certificateArn: ""  # overridden at deploy time via --set ingress.certificateArn
-
 # JVM tuning — must stay proportional to resources.limits.memory above
 # Xms/Xmx at ~50% of the memory limit leaves headroom for metaspace + native
 javaOptsAppend: "-Xms512m -Xmx1g"

@@ -76,6 +76,8 @@ spec:
           ports:
             - containerPort: 8080
               name: http
+            - containerPort: 9000
+              name: management
           env:
             - name: AWS_REGION
               value: {{ .Values.awsRegion | quote }}
@@ -110,19 +112,25 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-          readinessProbe:
+          startupProbe:
             httpGet:
-              path: /realms/master
-              port: 8080
-            initialDelaySeconds: 40
+              path: /health/ready
+              port: 9000
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 12
+            failureThreshold: 24
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 9000
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /realms/master
-              port: 8080
-            initialDelaySeconds: 60
+              path: /health/live
+              port: 9000
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 6

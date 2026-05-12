@@ -136,8 +136,8 @@ jobs:
             --set image.tag="$APP_IMAGE_TAG" \
             --set ssmLoaderImage.repository="$SSM_LOADER_IMAGE_REPOSITORY" \
             --set ssmLoaderImage.tag="$SSM_LOADER_IMAGE_TAG" \
-            --set serviceAccount.roleArn="$IRSA_ROLE_ARN" \
-            --set ingress.certificateArn="$ACM_CERT_ARN"
+            --set serviceAccount.roleArn="$IRSA_ROLE_ARN"
+            # --set ingress.certificateArn="$ACM_CERT_ARN"
 
       - name: Verify deployment
         run: |
@@ -145,18 +145,3 @@ jobs:
           kubectl -n "$K8S_NAMESPACE" get deploy,po,svc
           kubectl -n "$K8S_NAMESPACE" rollout status deploy/"$SERVICE_NAME" --timeout=300s
 
-      - name: Print ALB DNS name
-        run: |
-          set -euo pipefail
-          echo "Waiting for ALB address to be assigned..."
-          for i in $(seq 1 20); do
-            ALB_DNS=$(kubectl -n "$K8S_NAMESPACE" get ingress "$SERVICE_NAME" \
-              -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
-            if [ -n "$ALB_DNS" ]; then
-              echo "ALB DNS: $ALB_DNS"
-              echo "Update prod.tfvars: keycloak_alb_domain_name = \"$ALB_DNS\""
-              exit 0
-            fi
-            sleep 15
-          done
-          echo "ALB address not assigned yet — run: kubectl -n $K8S_NAMESPACE get ingress $SERVICE_NAME"

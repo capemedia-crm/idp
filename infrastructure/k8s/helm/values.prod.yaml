@@ -1,13 +1,11 @@
 name: digi-identity
 
 image:
-  repository: 565393046261.dkr.ecr.us-east-1.amazonaws.com/cape-digi-digi-identity
-  tag: latest
+  repository: 706244675609.dkr.ecr.us-east-1.amazonaws.com/cape-digi-digi-identity
   pullPolicy: IfNotPresent
 
 ssmLoaderImage:
-  repository: 565393046261.dkr.ecr.us-east-1.amazonaws.com/cape-digi-ssm-loader
-  tag: latest
+  repository: 706244675609.dkr.ecr.us-east-1.amazonaws.com/cape-digi-ssm-loader
   pullPolicy: IfNotPresent
 
 replicas: 2
@@ -38,10 +36,6 @@ autoscaling:
 
 pdb:
   minAvailable: 1
-
-# JVM tuning — must stay proportional to resources.limits.memory above
-# Xms/Xmx at ~50% of the memory limit leaves headroom for metaspace + native
-javaOptsAppend: "-Xms512m -Xmx1g"
 
 # emptyDir for /opt/keycloak/data — Keycloak is stateless with external Postgres;
 # this directory only holds H2 scratch files and Infinispan cache

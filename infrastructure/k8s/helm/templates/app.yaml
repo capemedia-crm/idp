@@ -96,10 +96,6 @@ spec:
               value: "true"
             - name: KC_HTTP_MANAGEMENT_PORT
               value: "9000"
-            - name: KC_CACHE_STACK
-              value: kubernetes
-            - name: jgroups.dns.query
-              value: "{{ .Values.name }}-headless.{{ .Release.Namespace }}.svc.cluster.local"
             - name: POD_NAMESPACE
               valueFrom:
                 fieldRef:
